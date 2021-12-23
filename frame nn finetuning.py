@@ -12,10 +12,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import models, transforms
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 from create_dataset import FrameDataset
 
-#let's define the hyperparameters
+#let's define some parameters
 
 root_dir='frames'
 csv_file='annotations.csv'
@@ -63,11 +64,14 @@ def initialize_model(num_classes, feature_extract, use_pretrained=True):
     
     return model_ft, input_size
 
-def train_model(model, dataloader, loss_fn, optimizer, num_epochs=25, is_inception=False):
+def train_model(model, dataloader, loss_fn, optimizer, writer, num_epochs=25, is_inception=False):
     
+    running_loss=0.0
+    i=0
     size = len(dataloader.dataset)
     for batch, (X, y) in enumerate(dataloader):
         # Compute prediction and loss
+        
         pred = model(X)
         loss = loss_fn(pred, y)
 
@@ -75,22 +79,40 @@ def train_model(model, dataloader, loss_fn, optimizer, num_epochs=25, is_incepti
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
+        running_loss += loss.item()
+        
+        writer.add_scalar('Loss/train',
+                            running_loss / 1000,
+                            num_epochs * len(dataloader) + i)
 
+        i+=1
         if batch % 100 == 0:
             loss, current = loss.item(), batch * len(X)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
             
 def test_model(dataloader, model, loss_fn):
+
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     test_loss, correct = 0, 0
+    i=0
 
     with torch.no_grad():
         for X, y in dataloader:
             pred = model(X)
-            test_loss += loss_fn(pred, y).item()
+            loss = loss_fn(pred, y)
+            
+            test_loss += loss.item()
+            
+        
+            writer.add_scalar('Loss/test',
+                            test_loss / 1000,
+                            num_epochs * len(dataloader) + i)
             correct += (pred.argmax(1) == y).type(torch.float).sum().item()
 
+            i+=1
+            
     test_loss /= num_batches
     correct /= size
     print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
@@ -99,6 +121,7 @@ def test_model(dataloader, model, loss_fn):
 # Detect if we have a GPU available
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+writer=SummaryWriter('runs/tranfer_learning_classifier_1')
 model_ft, input_size = initialize_model(num_classes, feature_extract, use_pretrained=True)
 
 # Gather the parameters to be optimized/updated in this run. If we are
@@ -143,7 +166,11 @@ train_loader=DataLoader(dataset=train_set,batch_size=batch_size,shuffle=True)
 test_loader=DataLoader(dataset=test_set,batch_size=batch_size,shuffle=True)
 
 # Train and evaluate
-train_model(model_ft,train_loader, criterion, optimizer_ft, num_epochs=num_epochs, is_inception=False)
+train_model(model_ft,train_loader, criterion, optimizer_ft, writer, num_epochs=num_epochs, is_inception=False)
+
+torch.save(model_ft, 'model.pth')
+
+writer.close()
 
 for t in range(num_epochs):
     print(f"Epoch {t+1}\n-------------------------------")
