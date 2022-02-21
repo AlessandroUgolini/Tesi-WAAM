@@ -37,7 +37,7 @@ n_frames_2=110698
 
 classes=['stable','arising','unstable']
 
-video_index=[0,15579,31085,46591,62100,77602,93167,108732,124290,139848,160534,191506,222481,238079]
+video_index=[0,15579,31085,46591,62100,77602,93167,108732,124290,139848,160534,191506,222481,238078]
 
 weights=torch.tensor([1/n_frames_0,1/n_frames_1,1/n_frames_2])
 
@@ -51,6 +51,8 @@ def get_parser():
     parser.add_argument("--epochs", type=int, help="Number of epochs. Default value 100.", default=5)
     parser.add_argument("--learning-rate", type=float, help="Learning rate. Default value 0.001.", default=0.001)
     parser.add_argument("--batch-size", type=int, help="Batch size. Default value 10.", default=10)
+    parser.add_argument("--load", type=bool, help="Indicate if the model has to be loaded or not.Default value False", default=False)
+    parser.add_argument("--test-set", type=int, help="Test set. Default value 1.", default=1)
     args = parser.parse_args()
     return args
 
@@ -60,7 +62,7 @@ def set_parameter_requires_grad(model, feature_extracting):
             param.requires_grad = False
             
 
-def initialize_model(num_classes, feature_extract, use_pretrained=True):
+def initialize_model(num_classes, feature_extract, start, load, use_pretrained=True):
     # Initialize these variables which will be set in this if statement. Each of these
     #   variables is model specific.
     model_ft = None
@@ -69,8 +71,11 @@ def initialize_model(num_classes, feature_extract, use_pretrained=True):
     model_ft = models.resnet101(pretrained=use_pretrained)
     set_parameter_requires_grad(model_ft, feature_extract)
     num_ftrs = model_ft.fc.in_features
-    model_ft.fc = nn.Linear(num_ftrs, num_classes)
+    model_ft.fc = nn.Linear(num_ftrs, num_classes)    
     input_size = 224
+    
+    if load:
+        model_ft.load_state_dict(torch.load('model_full_vid_'+str(start)+'.pth'))
     
     return model_ft, input_size
 
@@ -159,9 +164,9 @@ def test_model(model, dataloader, loss_fn, device,num_epochs):
             
             accuracy=balanced_accuracy_score(y_true,y_pred)
             
-    cf_matrix = confusion_matrix(y_true, y_pred)
+    cf_matrix = confusion_matrix(y_true, y_pred,normalize="true")
     
-    df_cm = pd.DataFrame(cf_matrix/np.sum(cf_matrix) * 10, index=[i for i in classes],
+    df_cm = pd.DataFrame(cf_matrix, index=[i for i in classes],
                      columns=[i for i in classes])
     plt.figure(figsize=(12, 7))  
     writer.add_figure("Confusion matrix/valid", sn.heatmap(df_cm, annot=True).get_figure(), num_epochs)
@@ -186,12 +191,14 @@ if  __name__ == '__main__':
     batch_size = args.batch_size
     num_epochs = args.epochs
     learning_rate=args.learning_rate
+    start=args.test_set
+    load=args.load
 
     # Detect if we have a GPU available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     writer=SummaryWriter()
-    model_ft, input_size = initialize_model(num_classes, feature_extract, use_pretrained=True)
+    model_ft, input_size = initialize_model(num_classes, feature_extract, start, load, use_pretrained=True)
     
     # Gather the parameters to be optimized/updated in this run. If we are
     #  finetuning we will be updating all parameters. However, if we are
@@ -227,6 +234,7 @@ if  __name__ == '__main__':
     print("Initializing Datasets and Dataloaders...")
     
     dataset= FrameDataset(csv_file=csv_file, root_dir=root_dir)
+    print(len(dataset))
     
     for i in range(1,nvideo+1):
         
@@ -234,12 +242,16 @@ if  __name__ == '__main__':
         
         # Create training and validation datasets
         
-        data_ind=np.arange(video_index[-1])
+        data_ind=np.arange(video_index[-1]-1)
         test_ind=np.arange(video_index[i-1],video_index[i])
         train_ind=np.delete(data_ind,test_ind)
         
         train_set=torch.utils.data.Subset(dataset,train_ind)
         test_set=torch.utils.data.Subset(dataset,test_ind)
+        
+        print(len(train_set))
+        print(len(test_set))
+        print(len(train_set)+len(test_set))
         
         # Create training and validation dataloaders
         train_loader=DataLoader(dataset=train_set,batch_size=batch_size,shuffle=True)
@@ -254,5 +266,6 @@ if  __name__ == '__main__':
         
         model_ft=model_ft.to(device='cpu')
         torch.save(model_ft.state_dict(), 'model_full_vid_'+str(i)+'.pth')
+        model_ft=model_ft.to(device)
     writer.add_hparams({'lr': learning_rate, 'bsize': batch_size},{'hparam/accuracy': ta, 'hparam/loss': tl})
     writer.close()
