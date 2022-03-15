@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import roc_auc_score,roc_curve
 
-from create_dataset_noblack import FrameDataset
+from create_dataset_regression import FrameDataset
 
 #let's define some parameters
 
@@ -107,21 +107,14 @@ def train_model(model, dataloader, loss_fn, optimizer, writer, device, num_epoch
             if p<0:
                 p=0
         
-        y_clipped_p=[]
-        for p in pred:
-            if p<threshold:
-                y_clipped_p.append(0)
-            else:
-                y_clipped_p.append(1)
-                
-        y_pred.extend(y_clipped_p)
+        y_pred.extend(pred)
         
         running_loss += loss.item() # save loss
         
         y = y.data.cpu().numpy()
         y_clipped_t=[]
         for i in y:
-            if p<threshold:
+            if i<threshold:
                 y_clipped_t.append(0)
             else:
                 y_clipped_t.append(1)
@@ -129,8 +122,27 @@ def train_model(model, dataloader, loss_fn, optimizer, writer, device, num_epoch
         y_true.extend(y_clipped_t) # Save truth
         
     
+    y_t = torch.FloatTensor(y_true)
+    y_p = torch.FloatTensor(y_pred)
+    
+    y_t=y_t.cpu()
+    y_p=y_p.cpu()
+            
+    score=roc_auc_score(y_t, y_p)
+    
+    ns_fpr, ns_tpr, _ = roc_curve(y_t, y_p)
+    
+    plt.plot(ns_fpr, ns_tpr, marker='.')
+    
     running_loss=running_loss/num_batches
-    score=roc_auc_score(y_true, y_pred)
+    
+    plt.plot(ns_fpr, ns_tpr, marker='.')
+    
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    
+    plt.savefig("train_clip "+str(1+num_epochs)+"_"+str(threshold)+".jpg")
+    
     print(round(score,3))
     print(round(running_loss,3))
     writer.add_scalar('Loss/train', running_loss,(1+num_epochs) * len(dataloader))
@@ -159,33 +171,35 @@ def test_model(model, dataloader, loss_fn, device,num_epochs, threshold):
             
             test_loss += loss.item() # save loss
             
-            for p in pred:
-                if p>1:
-                    p=1
-                if p<0:
-                    p=0
-        
-        
-            y_clipped_p=[]
-            for p in pred:
-                if p<threshold:
-                    y_clipped_p.append(0)
-                else:
-                    y_clipped_p.append(1)
-            
-            y_pred.extend(y_clipped_p)
+            y_pred.extend(pred)
             
             y = y.data.cpu().numpy()
             y_clipped_t=[]
             for i in y:
-                if p<threshold:
+                if i<threshold:
                     y_clipped_t.append(0)
                 else:
                     y_clipped_t.append(1)
                     
             y_true.extend(y_clipped_t) # Save truth
             
-    score=roc_auc_score(y_true, y_pred)
+    
+    y_t = torch.FloatTensor(y_true)
+    y_p = torch.FloatTensor(y_pred)
+    
+    y_t=y_t.cpu()
+    y_p=y_p.cpu()
+            
+    score=roc_auc_score(y_t, y_p)
+    
+    ns_fpr, ns_tpr, _ = roc_curve(y_t, y_p)
+    
+    plt.plot(ns_fpr, ns_tpr, marker='.')
+    
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    
+    plt.savefig("test_clip "+str(1+num_epochs)+"_"+str(threshold)+".jpg")
     
     test_loss /= num_batches
     

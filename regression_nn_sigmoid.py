@@ -8,8 +8,7 @@ Created on Mon Feb 14 10:18:15 2022
 #imports
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import seaborn as sn
+from numpy import savetxt
 import argparse
 import torch
 import torch.nn as nn
@@ -110,21 +109,14 @@ def train_model(model, dataloader, loss_fn, optimizer, writer, device, num_epoch
             if p<0:
                 p=0
         
-        y_clipped_p=[]
-        for p in pred:
-            if p<threshold:
-                y_clipped_p.append(0)
-            else:
-                y_clipped_p.append(1)
-                
-        y_pred.extend(y_clipped_p)
+        y_pred.extend(pred)
         
         running_loss += loss.item() # save loss
         
         y = y.data.cpu().numpy()
         y_clipped_t=[]
         for i in y:
-            if p<threshold:
+            if i<threshold:
                 y_clipped_t.append(0)
             else:
                 y_clipped_t.append(1)
@@ -132,8 +124,27 @@ def train_model(model, dataloader, loss_fn, optimizer, writer, device, num_epoch
         y_true.extend(y_clipped_t) # Save truth
         
     
+    y_t = torch.FloatTensor(y_true)
+    y_p = torch.FloatTensor(y_pred)
+    
+    y_t=y_t.cpu()
+    y_p=y_p.cpu()
+            
+    score=roc_auc_score(y_t, y_p)
+    
+    ns_fpr, ns_tpr, _ = roc_curve(y_t, y_p)
+    
+    plt.plot(ns_fpr, ns_tpr, marker='.')
+    
     running_loss=running_loss/num_batches
-    score=roc_auc_score(y_true, y_pred)
+    
+    plt.plot(ns_fpr, ns_tpr, marker='.')
+    
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    
+    plt.savefig("train "+str(1+num_epochs)+"_"+str(threshold)+".jpg")
+    
     print(round(score,3))
     print(round(running_loss,3))
     writer.add_scalar('Loss/train', running_loss,(1+num_epochs) * len(dataloader))
@@ -148,6 +159,9 @@ def test_model(model, dataloader, loss_fn, device,num_epochs, threshold):
     
     y_pred = []
     y_true = []
+    
+    y_pred_restr=[]
+    y_true_restr=[]
 
     num_batches = len(dataloader)
 
@@ -162,26 +176,38 @@ def test_model(model, dataloader, loss_fn, device,num_epochs, threshold):
             
             test_loss += loss.item() # save loss
             
-            y_clipped_p=[]
-            for p in pred:
-                if p<threshold:
-                    y_clipped_p.append(0)
-                else:
-                    y_clipped_p.append(1)
-            
-            y_pred.extend(y_clipped_p)
-            
             y = y.data.cpu().numpy()
-            y_clipped_t=[]
-            for i in y:
-                if p<threshold:
-                    y_clipped_t.append(0)
-                else:
-                    y_clipped_t.append(1)
                     
-            y_true.extend(y_clipped_t) # Save truth
+            y_pred.extend(pred)
+            y_true.extend(y) 
             
-    score=roc_auc_score(y_true, y_pred)
+    print (y_pred)
+    print (y_true)
+            
+    for i in range(len(y_true)):
+        if y_true[i]==1 or y_true[i]==0:
+            y_pred_restr.append(y_pred[i])
+            y_true_restr.append(y_true[i])
+                    
+    print (y_pred_restr)
+    print (y_true_restr)
+                    
+    y_t = torch.FloatTensor(y_true_restr)
+    y_p = torch.FloatTensor(y_pred_restr)
+    
+    y_t=y_t.cpu()
+    y_p=y_p.cpu()
+            
+    score=roc_auc_score(y_t, y_p)
+    
+    ns_fpr, ns_tpr, thresholds = roc_curve(y_t, y_p)
+    
+    plt.plot(ns_fpr, ns_tpr, marker='.')
+    
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    
+    plt.savefig("test "+str(1+num_epochs)+"_"+str(threshold)+".jpg")
     
     test_loss /= num_batches
     
@@ -192,6 +218,10 @@ def test_model(model, dataloader, loss_fn, device,num_epochs, threshold):
     writer.add_scalar('ROC auc score/valid', 
                       score, 
                       (1+num_epochs) * len(dataloader))
+    
+    savetxt('data1.csv',ns_fpr,delimiter=',')
+    savetxt('data2.csv',ns_tpr,delimiter=',')
+    savetxt('data3.csv',thresholds,delimiter=',')
     
     print("Test loss {:.3} Score {:.2}".format(test_loss,score))
     return test_loss,score
