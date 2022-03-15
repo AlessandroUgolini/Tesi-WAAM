@@ -48,6 +48,7 @@ def get_parser():
     parser.add_argument("--epochs", type=int, help="Number of epochs. Default value 100.", default=5)
     parser.add_argument("--learning-rate", type=float, help="Learning rate. Default value 0.001.", default=0.001)
     parser.add_argument("--batch-size", type=int, help="Batch size. Default value 10.", default=10)
+    parser.add_argument("--load", type=bool, help="Load. Default value False.", default=False)
     args = parser.parse_args()
     return args
 
@@ -57,7 +58,7 @@ def set_parameter_requires_grad(model, feature_extracting):
             param.requires_grad = False
             
 
-def initialize_model(num_classes, feature_extract, use_pretrained=True):
+def initialize_model(num_classes, feature_extract,load, use_pretrained=True):
     # Initialize these variables which will be set in this if statement. Each of these
     #   variables is model specific.
     model_ft = None
@@ -68,8 +69,8 @@ def initialize_model(num_classes, feature_extract, use_pretrained=True):
     num_ftrs = model_ft.fc.in_features
     model_ft.fc = nn.Linear(num_ftrs, num_classes)
     input_size = 224
-    
-    model_ft.load_state_dict(torch.load('model_full.pth'))
+    if load:
+        model_ft.load_state_dict(torch.load('model_full.pth'))
     
     return model_ft, input_size
 
@@ -120,10 +121,10 @@ def train_model(model, dataloader, loss_fn, optimizer, writer, device, num_epoch
             writer.add_scalar('Loss/train', running_loss / batch, steps)
             writer.add_scalar('Accuracy/train', accuracy, steps)
             
-        cf_matrix = confusion_matrix(y_true, y_pred)
-        
-        df_cm = pd.DataFrame(cf_matrix/np.sum(cf_matrix) * 10, index=[i for i in classes],
-                         columns=[i for i in classes])
+        cf_matrix = confusion_matrix(y_true, y_pred,normalize="true")
+    
+        df_cm = pd.DataFrame(cf_matrix , index=[i for i in classes],
+                     columns=[i for i in classes])
         plt.figure(figsize=(12, 7))  
         writer.add_figure("Confusion matrix/train", sn.heatmap(df_cm, annot=True).get_figure(), num_epochs)
         
@@ -185,12 +186,13 @@ if  __name__ == '__main__':
     batch_size = args.batch_size
     num_epochs = args.epochs
     learning_rate=args.learning_rate
+    load=args.load
 
     # Detect if we have a GPU available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     writer=SummaryWriter()
-    model_ft, input_size = initialize_model(num_classes, feature_extract, use_pretrained=True)
+    model_ft, input_size = initialize_model(num_classes, feature_extract,load, use_pretrained=True)
     
     # Gather the parameters to be optimized/updated in this run. If we are
     #  finetuning we will be updating all parameters. However, if we are
@@ -258,7 +260,7 @@ if  __name__ == '__main__':
     writer.close()
     
     #testare separando i video in video di train e video di test
-    #protocollo sperimentale alternando tutti i vari video come test (leave one out)
+    #protocollo sperimentale alternando tutti i vari video come test (leave one out) V
     
     #i valori oltre i limiti vengono clippati agli estremi inizialmente
     #provare poi con sigmoide, probabilmente peggio
